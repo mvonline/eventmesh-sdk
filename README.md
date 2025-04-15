@@ -170,6 +170,15 @@ EventMesh::subscribe('order.created', function ($topic, $payload) {
     // Handle the event
     Log::info("Order created: {$payload['order_id']}");
 });
+
+// Listen to all events with optional filter pattern
+EventMesh::subscribeAll(function ($topic, $payload, $headers) {
+    // Handle any event
+    Log::info("Received event on topic: {$topic}", [
+        'payload' => $payload,
+        'headers' => $headers
+    ]);
+}, 'order.*'); // Optional filter pattern to only receive order-related events
 ```
 
 Using Artisan:
@@ -180,6 +189,15 @@ php artisan eventmesh:listen order.created
 
 # Listen with timeout
 php artisan eventmesh:listen order.created --timeout=60
+
+# Listen to all events
+php artisan eventmesh:listen-all
+
+# Listen to all events with a filter pattern
+php artisan eventmesh:listen-all --filter="order.*"
+
+# Listen to all events with timeout
+php artisan eventmesh:listen-all --timeout=300 --filter="order.*"
 ```
 
 ### Saga Orchestration
