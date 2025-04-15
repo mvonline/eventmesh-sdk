@@ -127,6 +127,59 @@ return [
 
 ## Usage
 
+### EventMesh Facade
+
+The package provides a facade for easy access to EventMesh functionality:
+
+```php
+use EventMesh\LaravelSdk\Facades\EventMesh;
+
+// Get the default driver
+$driver = EventMesh::driver();
+
+// Get a specific driver
+$mqttDriver = EventMesh::driver('mqtt');
+$grpcDriver = EventMesh::driver('grpc');
+
+// Publish an event
+EventMesh::publish('order.created', [
+    'order_id' => 123,
+    'amount' => 99.99,
+]);
+
+// Publish with headers
+EventMesh::publish('order.created', [
+    'order_id' => 123,
+    'amount' => 99.99,
+], [
+    'X-Correlation-Id' => 'abc123',
+    'X-Saga-Instance-Id' => 'saga-123',
+]);
+
+// Subscribe to a topic
+EventMesh::subscribe('order.created', function ($topic, $payload, $headers) {
+    // Handle the event
+});
+
+// Subscribe to all events with optional filter
+EventMesh::subscribeAll(function ($topic, $payload, $headers) {
+    // Handle any event
+}, 'order.*');
+
+// Disconnect from the event mesh
+EventMesh::disconnect();
+```
+
+The facade provides the following methods:
+
+| Method | Description | Parameters | Return Type |
+|--------|-------------|------------|-------------|
+| `driver(?string $name = null)` | Get an event mesh driver instance | `$name`: Optional driver name (http, mqtt, grpc, cloudevents) | `EventMeshManager` |
+| `publish(string $topic, array $payload, array $headers = [])` | Publish an event to a topic | `$topic`: Event topic<br>`$payload`: Event data<br>`$headers`: Optional headers | `bool` |
+| `subscribe(string $topic, callable $callback)` | Subscribe to a specific topic | `$topic`: Event topic<br>`$callback`: Event handler | `bool` |
+| `subscribeAll(callable $callback, ?string $filterPattern = null)` | Subscribe to all events | `$callback`: Event handler<br>`$filterPattern`: Optional filter pattern | `bool` |
+| `disconnect()` | Disconnect from the event mesh | None | `void` |
+
 ### Publishing Events
 
 Using the Facade:
@@ -235,19 +288,130 @@ php artisan eventmesh:saga-status {saga_instance_id}
 
 ### Event Listeners
 
-Create event listeners for your events:
+Instead of creating separate listeners for each event, you can create a centralized event handler that routes events to the appropriate service:
 
 ```php
-use Illuminate\Support\Facades\Event;
+namespace App\Listeners;
 
-Event::listen('eventmesh.order.created', function ($event) {
-    $payload = $event['payload'];
-    $headers = $event['headers'];
-    $sagaInstanceId = $event['saga_instance_id'] ?? null;
-    
-    // Handle the event
-});
+use App\Services\OrderService;
+use App\Services\PaymentService;
+use Illuminate\Support\Facades\Log;
+
+class EventMeshEventHandler
+{
+    public function __construct(
+        private OrderService $orderService,
+        private PaymentService $paymentService
+    ) {}
+
+    public function handleEvent($event): void
+    {
+        $topic = $event['topic'];
+        $payload = $event['payload'];
+        $headers = $event['headers'];
+        $sagaInstanceId = $headers['X-Saga-Instance-Id'] ?? null;
+
+        try {
+            // Route the event to the appropriate service based on the topic
+            match ($topic) {
+                'order.created' => $this->orderService->processNewOrder(
+                    orderId: $payload['order_id'],
+                    amount: $payload['amount'],
+                    sagaInstanceId: $sagaInstanceId
+                ),
+                'payment.processed' => $this->paymentService->handlePaymentProcessed(
+                    paymentId: $payload['payment_id'],
+                    status: $payload['status'],
+                    sagaInstanceId: $sagaInstanceId
+                ),
+                default => Log::warning("Unhandled event topic: {$topic}")
+            };
+
+            Log::info("Event processed successfully", [
+                'topic' => $topic,
+                'saga_instance_id' => $sagaInstanceId
+            ]);
+        } catch (\Exception $e) {
+            Log::error("Failed to process event", [
+                'topic' => $topic,
+                'error' => $e->getMessage(),
+                'saga_instance_id' => $sagaInstanceId
+            ]);
+
+            // If this is part of a saga, the error will trigger compensation
+            throw $e;
+        }
+    }
+}
 ```
+
+Register the event handler in your `EventServiceProvider`:
+
+```php
+namespace App\Providers;
+
+use App\Listeners\EventMeshEventHandler;
+use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
+
+class EventServiceProvider extends ServiceProvider
+{
+    protected $listen = [
+        'eventmesh.*' => [
+            EventMeshEventHandler::class . '@handleEvent',
+        ],
+    ];
+}
+```
+
+Example service implementation:
+
+```php
+namespace App\Services;
+
+use App\Models\Order;
+use Illuminate\Support\Facades\DB;
+
+class OrderService
+{
+    public function processNewOrder(int $orderId, float $amount, ?string $sagaInstanceId = null): void
+    {
+        DB::transaction(function () use ($orderId, $amount, $sagaInstanceId) {
+            // Create or update order record
+            $order = Order::updateOrCreate(
+                ['id' => $orderId],
+                [
+                    'amount' => $amount,
+                    'status' => 'processing',
+                    'saga_instance_id' => $sagaInstanceId
+                ]
+            );
+
+            // Perform business logic
+            $this->validateOrder($order);
+            $this->applyBusinessRules($order);
+        });
+    }
+
+    private function validateOrder(Order $order): void
+    {
+        // Implement order validation logic
+    }
+
+    private function applyBusinessRules(Order $order): void
+    {
+        // Implement business rules
+    }
+}
+```
+
+This approach provides several benefits:
+- Single point of entry for all events
+- Centralized event routing logic
+- Easier to maintain and extend
+- Clear separation between event handling and business logic
+- Consistent error handling and logging
+- Better saga integration
+- Reduced boilerplate code
 
 ### Compensation Handlers
 
