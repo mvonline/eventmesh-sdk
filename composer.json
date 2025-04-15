@@ -1,0 +1,41 @@
+{
+    "name": "eventmesh/laravel-sdk",
+    "description": "A Laravel SDK for Apache EventMesh integration with multi-protocol support and Saga orchestration",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "EventMesh Team",
+            "email": "info@eventmesh.io"
+        }
+    ],
+    "require": {
+        "php": "^8.1",
+        "illuminate/support": "^10.0",
+        "mongodb/mongodb": "^1.15",
+        "datastax/php-driver": "^1.6"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^8.0",
+        "phpunit/phpunit": "^10.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "EventMesh\\LaravelSdk\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "EventMesh\\LaravelSdk\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EventMesh\\LaravelSdk\\EventMeshServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+} 
